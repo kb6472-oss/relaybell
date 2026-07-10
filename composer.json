@@ -1,0 +1,22 @@
+{
+    "name": "relaybell/relaybell-php",
+    "description": "Official PHP server-side SDK for RelayBell web push notifications, event tracking, and analytics.",
+    "type": "library",
+    "license": "MIT",
+    "keywords": ["relaybell", "push", "notifications", "web-push", "sdk"],
+    "homepage": "https://relaybell.com",
+    "require": {
+        "php": ">=7.4",
+        "ext-curl": "*",
+        "ext-json": "*"
+    },
+    "autoload": {
+        "psr-4": {
+            "Relaybell\\": "src/"
+        }
+    },
+    "support": {
+        "issues": "https://github.com/kb6472-oss/relaybell/issues",
+        "docs": "https://relaybell.com/docs.html"
+    }
+}
