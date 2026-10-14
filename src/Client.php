@@ -27,7 +27,7 @@ class Client
     public const DEFAULT_BASE_URL = 'https://relaybell.com';
 
     /** SDK version, sent in the User-Agent header for observability. */
-    public const VERSION = '1.0.0';
+    public const VERSION = '1.1.0';
 
     /** Bearer token used to authenticate every request (e.g. rb_live_xxxx). */
     private string $apiKey;
@@ -68,6 +68,36 @@ class Client
         $this->baseUrl = rtrim($baseUrl, '/');
         $this->timeout = isset($options['timeout']) ? (int) $options['timeout'] : 30;
         $this->connectTimeout = isset($options['connectTimeout']) ? (int) $options['connectTimeout'] : 10;
+    }
+
+    /**
+     * The `userHash` for identity verification: proof, made on your server, that
+     * a visitor really is the user with this id. Print it next to the id for the
+     * browser SDK (`RelayBell.init({ externalId, userHash })` or
+     * `RelayBell.identify(externalId, userHash)`). Once your project requires
+     * verified ids, relaybell ignores an id without a valid hash, so nobody can
+     * claim to be one of your users to get their notifications.
+     *
+     * Lowercase hex HMAC-SHA256 of `$externalId`, keyed with your project's
+     * identity secret (dashboard → Settings → Developer). Makes no network
+     * request and needs no client instance. Never send the secret to the browser.
+     *
+     *     $hash = \Relaybell\Client::userHash($secret, $user->email);
+     *
+     * @param string $secret     Your project's identity secret (64 hex characters).
+     * @param string $externalId The id you pass to the browser SDK, exactly as sent.
+     *
+     * @return string 64 lowercase hex characters.
+     *
+     * @throws \InvalidArgumentException When the secret is empty.
+     */
+    public static function userHash(string $secret, string $externalId): string
+    {
+        if ($secret === '') {
+            throw new \InvalidArgumentException('RelayBell identity secret must not be empty.');
+        }
+
+        return hash_hmac('sha256', $externalId, $secret);
     }
 
     /**
@@ -138,10 +168,13 @@ class Client
     }
 
     /**
-     * Convenience helper that tracks a "conversion" event carrying a monetary
+     * Convenience helper that tracks a purchase (conversion) carrying a monetary
      * value. This is sugar over {@see track()} — it emits an event named
-     * "conversion" whose properties include the supplied `value` merged with any
-     * additional properties.
+     * "purchase" whose properties include the supplied `value` merged with any
+     * additional properties. "purchase" is the event the browser SDK's
+     * trackConversion() sends too: it counts as a conversion and cancels cart
+     * reminders and journeys set to stop on a purchase. (Before 1.1.0 this sent
+     * an event named "conversion".)
      *
      * @param int|float|string     $value Conversion value (e.g. order total).
      * @param array<string, mixed> $props Extra event properties and/or the
@@ -170,7 +203,7 @@ class Client
         // The conversion value lives inside the event properties object.
         $opts['properties'] = array_merge(['value' => $value], $props);
 
-        return $this->track('conversion', $opts);
+        return $this->track('purchase', $opts);
     }
 
     /**

@@ -64,7 +64,7 @@ try {
 $client = new Client('rb_live_xxxx');
 
 // Override the base URL (staging, self-hosted, etc.).
-$client = new Client('rb_live_xxxx', 'https://staging.relaybell.com');
+$client = new Client('rb_live_xxxx', 'http://localhost:8080');
 
 // Tune timeouts (seconds).
 $client = new Client('rb_live_xxxx', 'https://relaybell.com', [
@@ -128,9 +128,13 @@ $client->track('product_viewed', [
 
 ### `trackConversion($value, array $props = []): array`
 
-Convenience wrapper over `track()` that emits a `conversion` event with a monetary
-`value` in its properties. `externalId` / `subscriberId` in `$props` are lifted
-out and used for subscriber attribution; all other keys become event properties.
+Convenience wrapper over `track()` that emits a `purchase` event with a monetary
+`value` in its properties — the same event the browser SDK's `trackConversion()`
+sends. It counts as a conversion (the value is credited to the last notification
+that subscriber received) and cancels pending cart reminders and journeys set to
+stop on `purchase`. `externalId` / `subscriberId` in `$props` are lifted out and
+used for subscriber attribution; all other keys become event properties. Before
+1.1.0 this method sent an event named `conversion`.
 
 ```php
 $client->trackConversion(129.99, [
@@ -138,7 +142,7 @@ $client->trackConversion(129.99, [
     'orderId'    => 'ord_789',
     'currency'   => 'USD',
 ]);
-// Emits event "conversion" with properties { value: 129.99, orderId, currency }.
+// Emits event "purchase" with properties { value: 129.99, orderId, currency }.
 ```
 
 ### `stats(): array`
@@ -152,6 +156,38 @@ $stats = $client->stats();
 //                  'conversions' => ..., 'revenue' => ...],
 //     'notifications' => [ ... ]]
 ```
+
+## Identity verification
+
+When your site tells relaybell who a signed-in visitor is (`externalId`, often
+their email), sign that id on your server with `Client::userHash()`. Once your
+project requires verified ids (dashboard → Settings → Developer → User ID
+verification), relaybell ignores an id that comes without a valid hash, so nobody
+can pretend to be one of your customers to get their notifications.
+
+```php
+use Relaybell\Client;
+
+// Your project's identity secret (Settings → Developer). Keep it on the server only.
+$secret = getenv('RELAYBELL_IDENTITY_SECRET');
+$email  = $user->email;
+$hash   = Client::userHash($secret, $email); // no network request, no client needed
+$safe   = JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT; // safe inside <script>
+?>
+<script>
+  RelayBell.init({
+    projectId: 'proj_xxxx', apiBase: 'https://relaybell.com',
+    externalId: <?= json_encode($email, $safe) ?>, userHash: <?= json_encode($hash) ?>
+  });
+  // or, after the visitor signs in: RelayBell.identify(externalId, userHash);
+</script>
+```
+
+`Client::userHash(string $secret, string $externalId): string` returns the
+lowercase hex HMAC-SHA256 of the id keyed with the secret — the same as
+`hash_hmac('sha256', $externalId, $secret)`. Sign the id exactly as you pass it
+to the browser. If you rotate the secret, update your server's copy: hashes made
+with the old secret stop working at once.
 
 ## Error handling
 
@@ -183,6 +219,7 @@ client-side events, load the browser SDK on your storefront:
   RelayBell.init({ projectId: 'proj_xxxx', apiBase: 'https://relaybell.com' });
 
   // Also available in the browser:
+  // RelayBell.identify(externalId, userHash)
   // RelayBell.track(event, properties)
   // RelayBell.trackConversion(value, props)
   // RelayBell.unsubscribe()
@@ -194,6 +231,19 @@ client-side events, load the browser SDK on your storefront:
 
 - PHP >= 7.4
 - `ext-curl`, `ext-json`
+
+## Changelog
+
+### 1.1.0
+
+- `trackConversion()` now sends a `purchase` event (it sent `conversion` before),
+  the same event as the browser SDK and the WordPress plugin. Purchases recorded
+  from your server now cancel cart reminders and journeys set to stop on a
+  purchase. Its arguments haven't changed. If you built an automation or journey
+  on the `conversion` event, switch it to `purchase`.
+- New `Client::userHash($secret, $externalId)` for identity verification: signs a
+  visitor's id on your server so the browser SDK can prove it. No network request.
+  See [Identity verification](#identity-verification).
 
 ## License
 
