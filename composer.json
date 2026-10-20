@@ -1,9 +1,9 @@
 {
     "name": "relaybell/relaybell-php",
-    "description": "Official PHP server-side SDK for RelayBell web push notifications, event tracking, and analytics.",
+    "description": "Official PHP server-side SDK for RelayBell web push notifications, event tracking, analytics and webhook verification.",
     "type": "library",
     "license": "MIT",
-    "keywords": ["relaybell", "push", "notifications", "web-push", "sdk"],
+    "keywords": ["relaybell", "push", "notifications", "web-push", "sdk", "webhooks"],
     "homepage": "https://relaybell.com",
     "require": {
         "php": ">=7.4",

@@ -27,7 +27,7 @@ class Client
     public const DEFAULT_BASE_URL = 'https://relaybell.com';
 
     /** SDK version, sent in the User-Agent header for observability. */
-    public const VERSION = '1.1.0';
+    public const VERSION = '1.2.0';
 
     /** Bearer token used to authenticate every request (e.g. rb_live_xxxx). */
     private string $apiKey;
@@ -219,6 +219,73 @@ class Client
     public function stats(): array
     {
         return $this->request('GET', '/api/v1/stats');
+    }
+
+    /**
+     * List your notifications (sends), newest first, a page at a time.
+     *
+     * GET /api/v1/notifications
+     *
+     *     $page = $client->listNotifications(['status' => ['sent', 'failed'], 'limit' => 50]);
+     *     while ($page['nextCursor'] !== null) {
+     *         $page = $client->listNotifications(['status' => ['sent', 'failed'], 'limit' => 50, 'cursor' => $page['nextCursor']]);
+     *     }
+     *
+     * @param array{from?: string, to?: string, status?: string|string[], q?: string, limit?: int, cursor?: string, tz?: string} $params
+     *        Optional filters: `from` / `to` (days, "YYYY-MM-DD", on the day a
+     *        notification was made), `status` (draft, scheduled, queued,
+     *        held_for_review, sending, sent, failed, canceled — one, or a list;
+     *        without it, everything except drafts), `q` (search in titles and
+     *        texts), `limit` (1–100, default 25), `cursor` (the previous page's
+     *        nextCursor) and `tz` (IANA time zone for the days).
+     *
+     * @return array<string, mixed> { items: [...], nextCursor: string|null }.
+     *
+     * @throws RelaybellException On a non-2xx response or transport failure.
+     */
+    public function listNotifications(array $params = []): array
+    {
+        $query = [];
+        foreach ($params as $key => $value) {
+            if ($value === null || $value === '') {
+                continue;
+            }
+            if (is_array($value)) {
+                $value = implode(',', array_map('strval', $value));
+            } elseif (is_bool($value)) {
+                $value = $value ? 'true' : 'false';
+            }
+            $query[(string) $key] = (string) $value;
+        }
+        $path = '/api/v1/notifications';
+        if ($query !== []) {
+            $path .= '?' . http_build_query($query, '', '&', PHP_QUERY_RFC3986);
+        }
+
+        return $this->request('GET', $path);
+    }
+
+    /**
+     * One notification with its report.
+     *
+     * GET /api/v1/notifications/:id
+     *
+     * @param string $id The notificationId from send() or the list.
+     *
+     * @return array<string, mixed> { notification, funnel, devices, variants, languages,
+     *         errors, revenue, currency, sendBody }. An id that isn't one of this
+     *         website's throws a RelaybellException with status 404.
+     *
+     * @throws RelaybellException        On a non-2xx response or transport failure.
+     * @throws \InvalidArgumentException When `$id` is empty.
+     */
+    public function getNotification(string $id): array
+    {
+        if (trim($id) === '') {
+            throw new \InvalidArgumentException('getNotification(): "id" must not be empty.');
+        }
+
+        return $this->request('GET', '/api/v1/notifications/' . rawurlencode($id));
     }
 
     /**

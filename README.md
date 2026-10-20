@@ -157,6 +157,30 @@ $stats = $client->stats();
 //     'notifications' => [ ... ]]
 ```
 
+### `listNotifications(array $params = []): array`
+
+`GET /api/v1/notifications` — your sends, newest first, 25 a page. Filters:
+`from` / `to` (days, `"YYYY-MM-DD"`), `status` (one, or a list: draft,
+scheduled, queued, held_for_review, sending, sent, failed, canceled — without it,
+everything except drafts), `q` (search in titles and texts), `limit` (1–100),
+`cursor` and `tz`.
+
+```php
+$page = $client->listNotifications(['status' => ['sent', 'failed'], 'from' => '2026-10-01', 'limit' => 50]);
+foreach ($page['items'] as $n) {
+    echo $n['id'], ' ', $n['title'], ' ', $n['status'], ' ', $n['clicked'], PHP_EOL;
+}
+while ($page['nextCursor'] !== null) {
+    $page = $client->listNotifications(['status' => ['sent', 'failed'], 'from' => '2026-10-01', 'limit' => 50, 'cursor' => $page['nextCursor']]);
+}
+```
+
+### `getNotification(string $id): array`
+
+`GET /api/v1/notifications/:id` — one notification with its report:
+`['notification', 'funnel', 'devices', 'variants', 'languages', 'errors', 'revenue', 'currency', 'sendBody']`.
+An id that isn't one of this website's throws a `RelaybellException` with status 404.
+
 ## Identity verification
 
 When your site tells relaybell who a signed-in visitor is (`externalId`, often
@@ -188,6 +212,51 @@ lowercase hex HMAC-SHA256 of the id keyed with the secret — the same as
 `hash_hmac('sha256', $externalId, $secret)`. Sign the id exactly as you pass it
 to the browser. If you rotate the secret, update your server's copy: hashes made
 with the old secret stop working at once.
+
+## Verifying webhooks
+
+relaybell signs every webhook it sends to your server. `Relaybell\Webhook::verify()`
+checks the `X-Relaybell-Webhook-Signature` header and returns the event — or
+throws `Relaybell\WebhookVerificationException` — with no network request:
+
+```php
+use Relaybell\Webhook;
+use Relaybell\WebhookVerificationException;
+
+$raw = file_get_contents('php://input'); // the exact bytes relaybell signed
+try {
+    $event = Webhook::verify(
+        $raw,
+        getallheaders(),                     // or $_SERVER, or a PSR-7 $request->getHeaders()
+        getenv('RELAYBELL_WEBHOOK_SECRET')   // whsec_…, shown when you add the webhook
+        // , 300                             // tolerance in seconds (default 5 minutes)
+    );
+} catch (WebhookVerificationException $e) {
+    http_response_code(401);             // $e->getReason() says why
+    exit;
+}
+$deliveryId = $_SERVER['HTTP_X_RELAYBELL_DELIVERY'] ?? ''; // the same on every retry: handle each one once
+http_response_code(200);                 // answer within 10 seconds, then do the work
+// $event['event'] e.g. "notification.clicked", $event['data'] e.g. ['notificationId' => ..., 'variant' => null]
+```
+
+`Webhook::verify(string $payload, array $headers, $secret, int $tolerance = 300, bool $allowLegacy = false): array`
+fails closed; `getReason()` is one of:
+
+| Reason | When |
+| --- | --- |
+| `missing_secret` | The secret is empty, `null` or `false` (an unset `getenv()`) — it never verifies without one |
+| `missing_signature` | No `X-Relaybell-Webhook-Signature` header |
+| `malformed_signature` | The header has no valid `t` / `v1` |
+| `timestamp_out_of_tolerance` | The signature is more than `$tolerance` seconds old (or ahead): a replayed request |
+| `signature_mismatch` | Wrong secret, or the body was changed (or decoded and re-encoded) |
+| `invalid_payload` | The body isn't a JSON object |
+
+The older `X-Relaybell-Signature` header (a signature of the body only, with no
+timestamp) is still sent, but is accepted only with `$allowLegacy = true` and only
+when the request has no `v1` signature. relaybell retries failed deliveries for
+about 10 hours, so the same event can arrive more than once: de-duplicate by
+`X-Relaybell-Delivery`. See [Webhooks](https://relaybell.com/docs#webhooks).
 
 ## Error handling
 
@@ -233,6 +302,17 @@ client-side events, load the browser SDK on your storefront:
 - `ext-curl`, `ext-json`
 
 ## Changelog
+
+### 1.2.0
+
+- New `Relaybell\Webhook::verify($payload, $headers, $secret, $tolerance = 300)`
+  checks the timestamped `X-Relaybell-Webhook-Signature` header (constant-time,
+  `hash_equals`) and returns the event; it throws
+  `Relaybell\WebhookVerificationException` (`getReason()`), including when the
+  secret is empty. The older `X-Relaybell-Signature` is accepted only with
+  `$allowLegacy = true`. See [Verifying webhooks](#verifying-webhooks).
+- New `listNotifications(array $params = [])` and `getNotification(string $id)`
+  for `GET /api/v1/notifications` and `/:id`.
 
 ### 1.1.0
 
